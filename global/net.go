@@ -2,80 +2,62 @@ package global
 
 import (
 	"bufio"
-	"bytes"
 	"compress/gzip"
 	"fmt"
-	"github.com/guonaihong/gout"
-	"github.com/pkg/errors"
 	"io"
 	"io/ioutil"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/tidwall/gjson"
+
+	"github.com/Mrs4s/go-cqhttp/internal/base"
 )
 
 var (
 	client = &http.Client{
-		Timeout: time.Second * 30,
 		Transport: &http.Transport{
 			Proxy: func(request *http.Request) (u *url.URL, e error) {
-				if Proxy == "" {
+				if base.Proxy == "" {
 					return http.ProxyFromEnvironment(request)
 				}
-				return url.Parse(Proxy)
+				return url.Parse(base.Proxy)
 			},
-			DialContext: (&net.Dialer{
-				Timeout:   30 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
-			ForceAttemptHTTP2:     true,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
-			MaxConnsPerHost:       0,
-			MaxIdleConns:          0,
-			MaxIdleConnsPerHost:   999,
+			ForceAttemptHTTP2:   true,
+			MaxConnsPerHost:     0,
+			MaxIdleConns:        0,
+			MaxIdleConnsPerHost: 999,
 		},
 	}
-	Proxy string
 
+	// ErrOverSize 响应主体过大时返回此错误
 	ErrOverSize = errors.New("oversize")
+
+	// UserAgent HTTP请求时使用的UA
+	UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36 Edg/87.0.664.66"
 )
 
+// GetBytes 对给定URL发送Get请求，返回响应主体
 func GetBytes(url string) ([]byte, error) {
-	req, err := http.NewRequest("GET", url, nil)
+	reader, err := HTTPGetReadCloser(url)
 	if err != nil {
 		return nil, err
 	}
-	req.Header["User-Agent"] = []string{"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.116 Safari/537.36 Edg/83.0.478.61"}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if strings.Contains(resp.Header.Get("Content-Encoding"), "gzip") {
-		buffer := bytes.NewBuffer(body)
-		r, _ := gzip.NewReader(buffer)
-		defer r.Close()
-		unCom, err := ioutil.ReadAll(r)
-		return unCom, err
-	}
-	return body, nil
+	defer func() {
+		_ = reader.Close()
+	}()
+	return ioutil.ReadAll(reader)
 }
 
-func DownloadFile(url, path string, limit int64) error {
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0666)
+// DownloadFile 将给定URL对应的文件下载至给定Path
+func DownloadFile(url, path string, limit int64, headers map[string]string) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0o666)
 	if err != nil {
 		return err
 	}
@@ -84,6 +66,11 @@ func DownloadFile(url, path string, limit int64) error {
 	if err != nil {
 		return err
 	}
+
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -92,16 +79,17 @@ func DownloadFile(url, path string, limit int64) error {
 	if limit > 0 && resp.ContentLength > limit {
 		return ErrOverSize
 	}
-	_, err = io.Copy(file, resp.Body)
+	_, err = file.ReadFrom(resp.Body)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
+// DownloadFileMultiThreading 使用threadCount个线程将给定URL对应的文件下载至给定Path
 func DownloadFileMultiThreading(url, path string, limit int64, threadCount int, headers map[string]string) error {
 	if threadCount < 2 {
-		return DownloadFile(url, path, limit)
+		return DownloadFile(url, path, limit, headers)
 	}
 	type BlockMetaData struct {
 		BeginOffset    int64
@@ -114,12 +102,12 @@ func DownloadFileMultiThreading(url, path string, limit int64, threadCount int, 
 	// 初始化分块或直接下载
 	initOrDownload := func() error {
 		copyStream := func(s io.ReadCloser) error {
-			file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0666)
+			file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0o666)
 			if err != nil {
 				return err
 			}
 			defer file.Close()
-			if _, err = io.Copy(file, s); err != nil {
+			if _, err = file.ReadFrom(s); err != nil {
 				return err
 			}
 			return errUnsupportedMultiThreading
@@ -128,16 +116,19 @@ func DownloadFileMultiThreading(url, path string, limit int64, threadCount int, 
 		if err != nil {
 			return err
 		}
-		if headers != nil {
-			for k, v := range headers {
-				req.Header.Set(k, v)
-			}
+
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		if _, ok := headers["User-Agent"]; !ok {
+			req.Header["User-Agent"] = []string{UserAgent}
 		}
 		req.Header.Set("range", "bytes=0-")
 		resp, err := client.Do(req)
 		if err != nil {
 			return err
 		}
+		defer resp.Body.Close()
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			return errors.New("response status unsuccessful: " + strconv.FormatInt(int64(resp.StatusCode), 10))
 		}
@@ -155,9 +146,8 @@ func DownloadFileMultiThreading(url, path string, limit int64, threadCount int, 
 			blockSize := func() int64 {
 				if contentLength > 1024*1024 {
 					return (contentLength / int64(threadCount)) - 10
-				} else {
-					return contentLength
 				}
+				return contentLength
 			}()
 			if blockSize == contentLength {
 				return copyStream(resp.Body)
@@ -176,12 +166,12 @@ func DownloadFileMultiThreading(url, path string, limit int64, threadCount int, 
 			})
 			return nil
 		}
-		return errors.New("unknown status code.")
+		return errors.New("unknown status code")
 	}
 	// 下载分块
 	downloadBlock := func(block *BlockMetaData) error {
 		req, _ := http.NewRequest("GET", url, nil)
-		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0666)
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0o666)
 		if err != nil {
 			return err
 		}
@@ -189,10 +179,13 @@ func DownloadFileMultiThreading(url, path string, limit int64, threadCount int, 
 		_, _ = file.Seek(block.BeginOffset, io.SeekStart)
 		writer := bufio.NewWriter(file)
 		defer writer.Flush()
-		if headers != nil {
-			for k, v := range headers {
-				req.Header.Set(k, v)
-			}
+
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+
+		if _, ok := headers["User-Agent"]; ok {
+			req.Header["User-Agent"] = []string{UserAgent}
 		}
 		req.Header.Set("range", "bytes="+strconv.FormatInt(block.BeginOffset, 10)+"-"+strconv.FormatInt(block.EndOffset, 10))
 		resp, err := client.Do(req)
@@ -203,7 +196,7 @@ func DownloadFileMultiThreading(url, path string, limit int64, threadCount int, 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			return errors.New("response status unsuccessful: " + strconv.FormatInt(int64(resp.StatusCode), 10))
 		}
-		var buffer = make([]byte, 1024)
+		buffer := make([]byte, 1024)
 		i, err := resp.Body.Read(buffer)
 		for {
 			if err != nil && err != io.EOF {
@@ -250,21 +243,7 @@ func DownloadFileMultiThreading(url, path string, limit int64, threadCount int, 
 	return lastErr
 }
 
-func GetSliderTicket(raw, id string) (string, error) {
-	var rsp string
-	if err := gout.POST("https://api.shkong.com/gocqhttpapi/task").SetJSON(gout.H{
-		"id":  id,
-		"url": raw,
-	}).SetTimeout(time.Second * 35).BindBody(&rsp).Do(); err != nil {
-		return "", err
-	}
-	g := gjson.Parse(rsp)
-	if g.Get("error").Str != "" {
-		return "", errors.New(g.Get("error").Str)
-	}
-	return g.Get("ticket").Str, nil
-}
-
+// QQMusicSongInfo 通过给定id在QQ音乐上查找曲目信息
 func QQMusicSongInfo(id string) (gjson.Result, error) {
 	d, err := GetBytes(`https://u.y.qq.com/cgi-bin/musicu.fcg?format=json&inCharset=utf8&outCharset=utf-8&notice=0&platform=yqq.json&needNewCode=0&data={%22comm%22:{%22ct%22:24,%22cv%22:0},%22songinfo%22:{%22method%22:%22get_song_detail_yqq%22,%22param%22:{%22song_type%22:0,%22song_mid%22:%22%22,%22song_id%22:` + id + `},%22module%22:%22music.pf_song_detail_svr%22}}`)
 	if err != nil {
@@ -273,10 +252,56 @@ func QQMusicSongInfo(id string) (gjson.Result, error) {
 	return gjson.ParseBytes(d).Get("songinfo.data"), nil
 }
 
+// NeteaseMusicSongInfo 通过给定id在wdd音乐上查找曲目信息
 func NeteaseMusicSongInfo(id string) (gjson.Result, error) {
 	d, err := GetBytes(fmt.Sprintf("http://music.163.com/api/song/detail/?id=%s&ids=%%5B%s%%5D", id, id))
 	if err != nil {
 		return gjson.Result{}, err
 	}
 	return gjson.ParseBytes(d).Get("songs.0"), nil
+}
+
+type gzipCloser struct {
+	f io.Closer
+	r *gzip.Reader
+}
+
+// NewGzipReadCloser 从 io.ReadCloser 创建 gunzip io.ReadCloser
+func NewGzipReadCloser(reader io.ReadCloser) (io.ReadCloser, error) {
+	gzipReader, err := gzip.NewReader(reader)
+	if err != nil {
+		return nil, err
+	}
+	return &gzipCloser{
+		f: reader,
+		r: gzipReader,
+	}, nil
+}
+
+// Read impls io.Reader
+func (g *gzipCloser) Read(p []byte) (n int, err error) {
+	return g.r.Read(p)
+}
+
+// Close impls io.Closer
+func (g *gzipCloser) Close() error {
+	_ = g.f.Close()
+	return g.r.Close()
+}
+
+// HTTPGetReadCloser 从 Http url 获取 io.ReadCloser
+func HTTPGetReadCloser(url string) (io.ReadCloser, error) {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header["User-Agent"] = []string{UserAgent}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if strings.Contains(resp.Header.Get("Content-Encoding"), "gzip") {
+		return NewGzipReadCloser(resp.Body)
+	}
+	return resp.Body, err
 }

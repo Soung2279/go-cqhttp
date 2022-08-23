@@ -2,44 +2,47 @@ package global
 
 import (
 	"crypto/md5"
-	"errors"
-	"fmt"
-	"io/ioutil"
+	"encoding/hex"
+	"os"
+	"os/exec"
 	"path"
-	"sync"
 
-	log "github.com/sirupsen/logrus"
-	"github.com/wdvxdr1123/go-silk/silk"
+	"github.com/pkg/errors"
+
+	"github.com/Mrs4s/go-cqhttp/internal/base"
 )
 
-var codec silk.Encoder
-var useCodec = true
-var once sync.Once
-
-func InitCodec() {
-	once.Do(func() {
-		log.Info("正在加载silk编码器...")
-		err := codec.Init("data/cache", "codec")
-		if err != nil {
-			log.Error(err)
-			useCodec = false
-		}
-	})
-}
-
-func Encoder(data []byte) ([]byte, error) {
-	if useCodec == false {
-		return nil, errors.New("no silk encoder")
-	}
+// EncoderSilk 将音频编码为Silk
+func EncoderSilk(data []byte) ([]byte, error) {
 	h := md5.New()
-	h.Write(data)
-	tempName := fmt.Sprintf("%x", h.Sum(nil))
-	if silkPath := path.Join("data/cache", tempName+".silk"); PathExists(silkPath) {
-		return ioutil.ReadFile(silkPath)
-	}
-	slk, err := codec.EncodeToSilk(data, tempName, true)
+	_, err := h.Write(data)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "calc md5 failed")
+	}
+	tempName := hex.EncodeToString(h.Sum(nil))
+	if silkPath := path.Join("data/cache", tempName+".silk"); PathExists(silkPath) {
+		return os.ReadFile(silkPath)
+	}
+	slk, err := base.EncodeSilk(data, tempName)
+	if err != nil {
+		return nil, errors.Wrap(err, "encode silk failed")
 	}
 	return slk, nil
+}
+
+// EncodeMP4 将给定视频文件编码为MP4
+func EncodeMP4(src string, dst string) error { //        -y 覆盖文件
+	cmd1 := exec.Command("ffmpeg", "-i", src, "-y", "-c", "copy", "-map", "0", dst)
+	err := cmd1.Run()
+	if err != nil {
+		cmd2 := exec.Command("ffmpeg", "-i", src, "-y", "-c:v", "h264", "-c:a", "mp3", dst)
+		return errors.Wrap(cmd2.Run(), "convert mp4 failed")
+	}
+	return err
+}
+
+// ExtractCover 获取给定视频文件的Cover
+func ExtractCover(src string, target string) error {
+	cmd := exec.Command("ffmpeg", "-i", src, "-y", "-ss", "0", "-frames:v", "1", target)
+	return errors.Wrap(cmd.Run(), "extract video cover failed")
 }
