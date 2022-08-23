@@ -43,6 +43,25 @@ _✨ 基于 [Mirai](https://github.com/mamoe/mirai) 以及 [MiraiGo](https://git
 </p>
 
 
+## 更新
+This repository is forked from [Mrs4s/go-cqhttp](https://github.com/Mrs4s/go-cqhttp)
+
+本仓库复刻于[Mrs4s/go-cqhttp](https://github.com/Mrs4s/go-cqhttp)，属非官方版本，本人不保证稳定性、前沿性等与官方完全一致。但会尽可能同步。
+
+最新编译版本：[v1.0.0-dev-2022-8-13](https://github.com/Soung2279/go-cqhttp/releases/tag/v1.0.0-dev-2022-8-13)
+
+### **v1.0.0-dev-2022-8-13**
+
+同步至官方2022-8-13master源码[commit # 1629](https://github.com/Mrs4s/go-cqhttp/commit/08b0837cab325dee51845fd271aeafcfb709a870)
+
+**仅适用于Windows 平台**
+
+自编译可执行文件by Soung
+
+编译环境：Windows 10 LTSC 21H2，go1.19 windows/amd64
+
+编译时间：2022/8/24 2:30
+
 ## 兼容性
 go-cqhttp 兼容 [OneBot-v11](https://github.com/botuniverse/onebot-11) 绝大多数内容，并在其基础上做了一些扩展，详情请看 go-cqhttp 的文档。
 
@@ -270,18 +289,6 @@ go-cqhttp 兼容 [OneBot-v11](https://github.com/botuniverse/onebot-11) 绝大�
 [接收到离线文件]: https://docs.go-cqhttp.org/event/#%E6%8E%A5%E6%94%B6%E5%88%B0%E7%A6%BB%E7%BA%BF%E6%96%87%E4%BB%B6
 
 </details>
-
-## 关于 ISSUE
-
-以下 ISSUE 会被直接关闭
-
-- 提交 BUG 不使用 Template
-- 询问已知问题
-- 提问找不到重点
-- 重复提问
-
-> 请注意, 开发者并没有义务回复您的问题. 您应该具备基本的提问技巧。  
-> 有关如何提问，请阅读[《提问的智慧》](https://github.com/ryanhanwu/How-To-Ask-Questions-The-Smart-Way/blob/main/README-zh_CN.md)
 
 ## 性能
 
