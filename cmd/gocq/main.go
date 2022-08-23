@@ -131,7 +131,7 @@ func Main() {
 	if base.Debug {
 		log.SetLevel(log.DebugLevel)
 		log.Warnf("已开启Debug模式.")
-		// log.Debugf("开发交流群: 192548878")
+		// log.Debugf("请注意日志窗口输出内容")
 	}
 	if !global.PathExists("device.json") {
 		log.Warn("虚拟设备信息不存在, 将自动生成随机设备.")
@@ -198,8 +198,8 @@ func Main() {
 		base.PasswordHash = md5.Sum([]byte(base.Account.Password))
 	}
 	if !base.FastStart {
-		log.Info("Bot将在5秒后登录并开始信息处理, 按 Ctrl+C 取消.")
-		time.Sleep(time.Second * 5)
+		log.Info("Bot将在3秒后登录并开始信息处理, 按 Ctrl+C 取消.")
+		time.Sleep(time.Second * 3)
 	}
 	log.Info("开始尝试登录并同步消息...")
 	log.Infof("使用协议: %s", client.SystemDeviceInfo.Protocol)
@@ -220,8 +220,8 @@ func Main() {
 					log.Warnf("警告: 配置文件内的QQ号 (%v) 与缓存内的QQ号 (%v) 不相同", base.Account.Uin, cu)
 					log.Warnf("1. 使用会话缓存继续.")
 					log.Warnf("2. 删除会话缓存并重启.")
-					log.Warnf("请选择: (5秒后自动选1)")
-					text := readLineTimeout(time.Second*5, "1")
+					log.Warnf("请选择: (5秒后自动选2)")
+					text := readLineTimeout(time.Second*5, "2")
 					if text == "2" {
 						_ = os.Remove("session.token")
 						log.Infof("缓存已删除.")
@@ -322,7 +322,7 @@ func Main() {
 
 	servers.Run(coolq.NewQQBot(cli))
 	log.Info("资源初始化完成, 开始处理信息.")
-	log.Info("アトリは、高性能ですから!")
+	log.Info("此版本go-cqhttp编译by Soung")
 
 	go func() {
 		selfupdate.CheckUpdate()
